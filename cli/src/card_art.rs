@@ -138,11 +138,7 @@ impl TerminalCardRenderer {
 
         let target_w_u32 =
             u32::try_from(self.max_width).map_err(|_| String::from("invalid target width"))?;
-        let mut target_h = crop_h.saturating_mul(target_w_u32).saturating_mul(2) / crop_w;
-        target_h = target_h.clamp(10, 40);
-        if target_h % 2 != 0 {
-            target_h = target_h.saturating_add(1);
-        }
+        let target_h = terminal_target_height(crop_w, crop_h, target_w_u32);
 
         let resized =
             image::imageops::resize(&cropped, target_w_u32, target_h, FilterType::CatmullRom);
@@ -174,6 +170,18 @@ impl TerminalCardRenderer {
 
         Ok(lines)
     }
+}
+
+fn terminal_target_height(source_width: u32, source_height: u32, target_width: u32) -> u32 {
+    // Each terminal row packs two vertical image pixels into a half-block. Keeping
+    // the image-pixel aspect ratio here compensates for typical tall terminal cells
+    // once those pixel pairs are collapsed into rows.
+    let mut height = source_height.saturating_mul(target_width) / source_width;
+    height = height.clamp(8, 28);
+    if !height.is_multiple_of(2) {
+        height = height.saturating_add(1);
+    }
+    height
 }
 
 pub fn card_name_english(card: Card) -> String {
@@ -313,5 +321,27 @@ fn suit_italian(suit: Suit) -> &'static str {
         Suit::Cups => "Coppe",
         Suit::Swords => "Spade",
         Suit::Clubs => "Bastoni",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use briscola_core::card::{Card, Rank, Suit};
+
+    use super::{TerminalCardRenderer, terminal_target_height};
+
+    #[test]
+    fn half_block_target_height_keeps_terminal_cards_compact() {
+        assert_eq!(terminal_target_height(100, 200, 14), 28);
+        assert_eq!(terminal_target_height(100, 200, 10), 20);
+    }
+
+    #[test]
+    fn rendered_hand_card_is_no_more_than_fourteen_rows_tall() {
+        let mut renderer = TerminalCardRenderer::new(14);
+        let lines = renderer.render_card(Card::new(Suit::Clubs, Rank::King)).expect("render card");
+
+        assert!(!lines.is_empty());
+        assert!(lines.len() <= 14);
     }
 }

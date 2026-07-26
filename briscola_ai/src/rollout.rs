@@ -1,5 +1,5 @@
 use briscola_core::card::Card;
-use briscola_core::rules::{TrickWinner, trick_points, trick_winner};
+use briscola_core::rules::{TrickWinner, trick_winner};
 use briscola_core::state::{DeterminizedState, Player};
 
 fn reply_wins(lead_card: Card, reply_card: Card, briscola: briscola_core::card::Suit) -> bool {
@@ -35,33 +35,23 @@ pub fn choose_lead_card(state: &DeterminizedState, player: Player) -> Card {
 
 pub fn choose_reply_card(state: &DeterminizedState, player: Player, lead_card: Card) -> Card {
     let hand = state.hand(player);
-    let points_in_trick = trick_points(lead_card, lead_card);
 
-    let mut winning_cards: Vec<Card> = hand
+    let winning_cards: Vec<Card> = hand
         .iter()
         .copied()
         .filter(|card| reply_wins(lead_card, *card, state.briscola_suit))
         .collect();
 
-    if !winning_cards.is_empty() {
-        if points_in_trick <= 2 && state.talon.len() > 4 {
-            let non_trump_winning: Vec<Card> = winning_cards
-                .iter()
-                .copied()
-                .filter(|card| card.suit != state.briscola_suit)
-                .collect();
-            if !non_trump_winning.is_empty() {
-                winning_cards = non_trump_winning;
-            }
+    if lead_card.rank.points() <= 2 && state.talon.len() > 4 {
+        if let Some(card) = winning_cards.iter().copied().min_by_key(|card| {
+            (u8::from(card.suit == state.briscola_suit), card.rank.power(), card.rank.points())
+        }) {
+            return card;
         }
-
-        return winning_cards
-            .iter()
-            .copied()
-            .min_by_key(|card| {
-                (u8::from(card.suit == state.briscola_suit), card.rank.power(), card.rank.points())
-            })
-            .expect("winning card exists");
+    } else if let Some(card) = winning_cards.iter().copied().min_by_key(|card| {
+        (card.rank.points(), card.rank.power(), u8::from(card.suit == state.briscola_suit))
+    }) {
+        return card;
     }
 
     hand.iter()
@@ -70,4 +60,47 @@ pub fn choose_reply_card(state: &DeterminizedState, player: Player, lead_card: C
             (card.rank.points(), u8::from(card.suit == state.briscola_suit), card.rank.power())
         })
         .expect("follower has at least one card")
+}
+
+#[cfg(test)]
+mod tests {
+    use briscola_core::card::{Card, Rank, Suit};
+    use briscola_core::state::{DeterminizedState, Player};
+
+    use super::choose_reply_card;
+
+    fn reply_state(opp_hand: Vec<Card>, talon_len: usize) -> DeterminizedState {
+        DeterminizedState {
+            my_hand: vec![Card::new(Suit::Coins, Rank::Two)],
+            opp_hand,
+            talon: vec![Card::new(Suit::Cups, Rank::Two); talon_len],
+            briscola_suit: Suit::Clubs,
+            face_up_trump: Card::new(Suit::Clubs, Rank::King),
+            score_me: 0,
+            score_opp: 0,
+            leader: Player::Me,
+            pending_lead: None,
+            pending_lead_by: None,
+        }
+    }
+
+    #[test]
+    fn reply_preserves_trump_on_low_value_early_trick() {
+        let lead = Card::new(Suit::Swords, Rank::Jack);
+        let same_suit_winner = Card::new(Suit::Swords, Rank::Queen);
+        let cheap_trump = Card::new(Suit::Clubs, Rank::Two);
+        let state = reply_state(vec![same_suit_winner, cheap_trump], 5);
+
+        assert_eq!(choose_reply_card(&state, Player::Opponent, lead), same_suit_winner);
+    }
+
+    #[test]
+    fn reply_spends_lowest_value_winner_on_late_trick() {
+        let lead = Card::new(Suit::Swords, Rank::Jack);
+        let same_suit_winner = Card::new(Suit::Swords, Rank::Queen);
+        let cheap_trump = Card::new(Suit::Clubs, Rank::Two);
+        let state = reply_state(vec![same_suit_winner, cheap_trump], 4);
+
+        assert_eq!(choose_reply_card(&state, Player::Opponent, lead), cheap_trump);
+    }
 }

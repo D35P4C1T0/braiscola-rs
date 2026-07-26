@@ -55,24 +55,27 @@ pub fn choose_best_move(
     }
 
     let samples = config.samples_per_move.max(1);
-    let mut moves = Vec::with_capacity(legal_moves.len());
+    let mut totals = vec![(0.0_f64, 0.0_f64, 0_usize); legal_moves.len()];
 
-    for card in legal_moves {
-        let mut wins = 0.0_f64;
-        let mut deltas = 0.0_f64;
-        let mut successful_samples = 0_usize;
+    // Evaluate every candidate against the same sampled worlds. Besides requiring
+    // fewer determinizations, this reduces variance when comparing close moves.
+    for _ in 0..samples {
+        let sampled_state = sample_world(public, rng)
+            .map_err(|_: DeterminizeError| MonteCarloError::DeterminizeFailed)?;
 
-        for _ in 0..samples {
-            let mut state = sample_world(public, rng)
-                .map_err(|_: DeterminizeError| MonteCarloError::DeterminizeFailed)?;
-            let Ok((win_score, delta)) = simulate_with_forced_move(public, &mut state, card) else {
-                continue;
-            };
-            wins += win_score;
-            deltas += f64::from(delta);
-            successful_samples += 1;
+        for (index, card) in legal_moves.iter().copied().enumerate() {
+            let mut state = sampled_state.clone();
+            let (win_score, delta) = simulate_with_forced_move(public, &mut state, card)?;
+            totals[index].0 += win_score;
+            totals[index].1 += f64::from(delta);
+            totals[index].2 += 1;
         }
+    }
 
+    let mut moves = Vec::with_capacity(legal_moves.len());
+    for (card, (wins, deltas, successful_samples)) in
+        legal_moves.into_iter().zip(totals.into_iter())
+    {
         if successful_samples == 0 {
             return Err(MonteCarloError::NoSuccessfulSamples);
         }
@@ -184,5 +187,6 @@ mod tests {
             .expect("choose move");
 
         assert_eq!(result.best_move, winning);
+        assert!(result.moves.iter().all(|stats| stats.n_samples == 8));
     }
 }

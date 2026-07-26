@@ -102,6 +102,8 @@ Example files:
 - Advisor modes render terminal ASCII card art from `res/napoletane/*.webp`; white card background is treated as transparent.
 - `cargo run -p cli --bin play_tui -- ...` launches a fully interactive game where you play as `Me` against the AI.
 - `play_tui` defaults to a random seed if no seed is provided (`play_tui -- 42` or `--seed 42` for reproducible runs).
+- For the full card-table layout, use a terminal window of at least `82x36`; smaller
+  windows show a resize prompt instead of clipping the card art.
 
 ### TUI Controls
 
